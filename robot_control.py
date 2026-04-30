@@ -47,15 +47,18 @@ class Robot:
         self.logger.debug(f"Подключение к роботу IP: {self.IP}...")
         self.robot = urx.Robot(self.IP)
         self.logger.info(f"Успешное подключение к роботу IP: {self.IP}")
-        if self.is_master:
-            if self.slave_IP:
-                self.logger.debug(f"Подключение к роботу slave IP: {self.slave_IP}...")
-                self.slave = urx.Robot(self.slave_IP)
-                self.logger.info(f"Успешное подключение к роботу slave IP: {self.slave_IP}")
-            else:
-                self.logger.error(f"Отсутствует slave IP")
-                self.heartbeat.put((mp.current_process().name, "ERROR", "Отсутствует slave IP", time.time()))
-                exit(1)
+
+    def ensure_slave(self):
+        if not self.is_master:
+            return None
+        if self.slave:
+            return self.slave
+        if not self.slave_IP:
+            raise RuntimeError("Отсутствует slave IP")
+        self.logger.debug(f"Подключение к роботу slave IP: {self.slave_IP}...")
+        self.slave = urx.Robot(self.slave_IP)
+        self.logger.info(f"Успешное подключение к роботу slave IP: {self.slave_IP}")
+        return self.slave
 
     def init_joystick(self):
         pygame.init()
@@ -123,6 +126,22 @@ class Robot:
     def has_motion(speeds):
         return any(abs(speed) > 1e-6 for speed in speeds)
 
+    @staticmethod
+    def format_speedl(speeds, acceleration, duration):
+        speed_values = ", ".join(f"{float(speed):.6f}" for speed in speeds)
+        return f"speedl([{speed_values}], {float(acceleration):.6f}, {float(duration):.6f})"
+
+    def send_speedl(self, robot, speeds, duration=0.2):
+        robot.send_program(self.format_speedl(speeds, self.acceleration, duration))
+
+    def stop_motion(self):
+        try:
+            self.send_speedl(self.robot, [0.0] * 6, duration=0.1)
+            if self.slave:
+                self.send_speedl(self.slave, [0.0] * 6, duration=0.1)
+        except Exception:
+            self.logger.exception("Ошибка остановки движения")
+
     def update_heartbeat(self):
         current_time = time.time()
         if current_time - self.last_heartbeat > 2.0:
@@ -153,8 +172,7 @@ class Robot:
 
             if self.lock.value:
                 if not stop:
-                    self.robot.speedl_tool([0] * 6, 0.5, 2)
-                    self.robot.stopl()
+                    self.stop_motion()
                     stop = True
                 continue
             else:
@@ -164,13 +182,11 @@ class Robot:
 
             try:
                 if self.has_motion(self.speeds):
-                    if self.button_pressed(0):  # если зажат курок
-                        self.robot.speedl_tool(self.speeds, self.acceleration, 0.2)
-                        if self.auto.value == 0 and self.is_master:
-                            self.slave_speeds = self.get_slave_speeds()
-                            self.slave.speedl(self.slave_speeds, self.acceleration, 0.2)
-                    else:
-                        self.robot.speedl(self.speeds, self.acceleration, 0.2)
+                    self.send_speedl(self.robot, self.speeds)
+                    if self.button_pressed(0) and self.auto.value == 0 and self.is_master:
+                        self.ensure_slave()
+                        self.slave_speeds = self.get_slave_speeds()
+                        self.send_speedl(self.slave, self.slave_speeds)
                 else:
                     time.sleep(0.02)
 
@@ -191,6 +207,7 @@ class Robot:
             if self.button_pressed(8):
                 if self.auto.value == 0:
                     if self.is_master:
+                        self.ensure_slave()
                         self.slave_pos = self.pose_to_list(self.slave.getl())
                         self.slave.movel((self.slave_pos[0], self.slave_pos[1], self.slave_pos[2], 0, 3.14, 0), 0.2,
                                          0.2)  # выравнивание хирурга

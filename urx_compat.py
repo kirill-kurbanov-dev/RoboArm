@@ -51,3 +51,18 @@ def patch_urx_math3d():
     for cls in set(candidates):
         if not hasattr(cls, "tolist"):
             setattr(cls, "tolist", tolist)
+
+    try:
+        import urx.ursecmon as ursecmon
+    except Exception:
+        return
+
+    wait = getattr(ursecmon.SecondaryMonitor, "wait", None)
+    if wait is None or getattr(wait, "_patched_longer_timeout", False):
+        return
+
+    def wait_with_longer_default(self, timeout=2.0):
+        return wait(self, timeout)
+
+    wait_with_longer_default._patched_longer_timeout = True
+    ursecmon.SecondaryMonitor.wait = wait_with_longer_default
