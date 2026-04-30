@@ -152,10 +152,6 @@ class Robot:
             else:
                 stop = False
 
-            self.pos = self.pose_to_list(self.robot.getl())
-            if self.is_master:
-                self.slave_pos = self.pose_to_list(self.slave.getl())
-
             self.speeds = self.get_speeds()
 
             try:
@@ -187,6 +183,7 @@ class Robot:
             if self.button_pressed(8):
                 if self.auto.value == 0:
                     if self.is_master:
+                        self.slave_pos = self.pose_to_list(self.slave.getl())
                         self.slave.movel((self.slave_pos[0], self.slave_pos[1], self.slave_pos[2], 0, 3.14, 0), 0.2,
                                          0.2)  # выравнивание хирурга
 

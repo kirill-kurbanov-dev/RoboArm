@@ -378,8 +378,7 @@ class RobotControlUI(ctk.CTk):
         # Создание интерфейса
         self.create_tabs()
 
-        self.monitor = Thread(target=self.system_monitor, daemon=True)
-        # self.monitor.start()
+        self.monitor = None
 
         self.watchdog_thread = Thread(target=self.watchdog, daemon=True, name="Watchdog")
         self.watchdog_thread.start()
@@ -797,7 +796,6 @@ class RobotControlUI(ctk.CTk):
             'restartable': False
         }
         self.heartbeat.put(('power_on_diagnost', "AWAITING"))
-        self.monitor.start()
 
     def system_stop(self):
         print('system_stopped')
@@ -836,6 +834,8 @@ class RobotControlUI(ctk.CTk):
     def control_launch(self):
         sleep(1)
         if not us_lock:
+            if "surgeon_control" not in self.processes or "diagnost_control" not in self.processes:
+                self.control_initiate()
             program_lock.value = 0
             self.control_stop_btn.configure(state=tk.NORMAL)
             self.control_launch_btn.configure(state=tk.DISABLED)
