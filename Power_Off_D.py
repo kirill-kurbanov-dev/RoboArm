@@ -9,8 +9,11 @@ from config import load_config, dashboard_command
 def main(heartbeat, host=None):
     cfg = load_config()
     host = host or cfg.diagnost_ip
-    dashboard_command(host, "power off", cfg.dashboard_port)
-    heartbeat.put((mp.current_process().name, "FINISHED"))
+    try:
+        dashboard_command(host, "power off", cfg.dashboard_port)
+        heartbeat.put((mp.current_process().name, "FINISHED"))
+    except Exception as exc:
+        heartbeat.put((mp.current_process().name, "ERROR", f"{type(exc).__name__}: {str(exc)[:200]}", time.time()))
 
 if __name__ == "__main__":
     main()

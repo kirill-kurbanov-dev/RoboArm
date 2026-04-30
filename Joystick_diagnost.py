@@ -15,9 +15,15 @@ from logging.handlers import RotatingFileHandler
 from datetime import datetime
 
 import urx
+from urx_compat import patch_urx_math3d
+patch_urx_math3d()
 from config import load_config
 
 from copy import deepcopy
+
+
+def pose_to_list(pose):
+    return [float(value) for value in pose]
 
 auto = 0
 f_lock = None
@@ -155,7 +161,7 @@ class Service(object):
                 break
 
             if self.cmd.btn10:
-                path.append(self.robot.getl())
+                path.append(pose_to_list(self.robot.getl()))
                 print('point')
             if self.cmd.btn11:
                 following_path = True

@@ -1,6 +1,8 @@
 import time
 import pygame
 import urx
+from urx_compat import patch_urx_math3d
+patch_urx_math3d()
 import multiprocessing as mp
 from copy import deepcopy
 import logging
@@ -29,6 +31,10 @@ class Robot:
         self.slave = None
         self.joystick = None
         self.deadzone = self.config.deadzone
+
+    @staticmethod
+    def pose_to_list(pose):
+        return [float(value) for value in pose]
 
     def init_robot(self):
         self.logger.debug(f"Подключение к роботу IP: {self.IP}...")
@@ -146,9 +152,9 @@ class Robot:
             else:
                 stop = False
 
-            self.pos = self.robot.getl()
+            self.pos = self.pose_to_list(self.robot.getl())
             if self.is_master:
-                self.slave_pos = self.slave.getl()
+                self.slave_pos = self.pose_to_list(self.slave.getl())
 
             self.speeds = self.get_speeds()
 
@@ -185,7 +191,7 @@ class Robot:
                                          0.2)  # выравнивание хирурга
 
             if self.button_pressed(10):
-                self.path.append(self.robot.getl())
+                self.path.append(self.pose_to_list(self.robot.getl()))
                 self.logger.debug(f"Записана точка {self.path[-1]}")
             if self.button_pressed(11):
                 following_path = True

@@ -12,11 +12,17 @@ import math3d as m3d
 from math import pi, cos
 
 import urx
+from urx_compat import patch_urx_math3d
+patch_urx_math3d()
 from config import load_config
 from threading import Thread
 import Joystick_diagnost as diag
 import multiprocessing as mp
 from copy import deepcopy
+
+
+def pose_to_list(pose):
+    return [float(value) for value in pose]
 import logging
 from logging.handlers import RotatingFileHandler
 from datetime import datetime
@@ -192,7 +198,7 @@ class Service(object):  # основной класс, осуществляющ�
                     self.diagnost.movel((dpos[0], dpos[1], dpos[2], 0, 3.14, 0), 0.2, 0.2) # выравнивание хирурга
 
             if self.cmd.btn10:
-                path.append(self.robot.getl())
+                path.append(pose_to_list(self.robot.getl()))
                 proc_logger.debug(f"Записана точка {path[-1]}")
             if self.cmd.btn11:
                 following_path = True

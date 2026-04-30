@@ -7,6 +7,8 @@
 
 import urx
 import math3d as m3d
+from urx_compat import patch_urx_math3d
+patch_urx_math3d()
 import numpy as np
 import time
 from calibration_manager import CalibrationManager

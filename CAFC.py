@@ -1,6 +1,8 @@
 import math
 import time
 import urx
+from urx_compat import patch_urx_math3d
+patch_urx_math3d()
 from datetime import datetime
 from config import load_config
 

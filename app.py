@@ -16,6 +16,8 @@ from time import sleep
 import time
 from datetime import datetime
 import urx
+from urx_compat import patch_urx_math3d
+patch_urx_math3d()
 import asyncio
 from threading import Thread
 import threading
@@ -779,7 +781,8 @@ class RobotControlUI(ctk.CTk):
             'params': surgeon_params,
             'state': 'AWAITING',
             'pid': None,
-            'target': Power_On_H.main
+            'target': Power_On_H.main,
+            'restartable': False
         }
         self.heartbeat.put(('power_on_surgeon', "AWAITING"))
 
@@ -790,7 +793,8 @@ class RobotControlUI(ctk.CTk):
             'params': diagnost_params,
             'state': 'AWAITING',
             'pid': None,
-            'target': Power_On_D.main
+            'target': Power_On_D.main,
+            'restartable': False
         }
         self.heartbeat.put(('power_on_diagnost', "AWAITING"))
         self.monitor.start()
@@ -812,7 +816,8 @@ class RobotControlUI(ctk.CTk):
             'params': surgeon_params,
             'state': 'AWAITING',
             'pid': None,
-            'target': Power_Off_H.main
+            'target': Power_Off_H.main,
+            'restartable': False
         }
         self.heartbeat.put(('power_off_surgeon', 'AWAITING'))
 
@@ -823,7 +828,8 @@ class RobotControlUI(ctk.CTk):
             'params': diagnost_params,
             'state': 'AWAITING',
             'pid': None,
-            'target': Power_Off_D.main
+            'target': Power_Off_D.main,
+            'restartable': False
         }
         self.heartbeat.put(('power_off_diagnost', 'AWAITING'))
 
@@ -852,7 +858,8 @@ class RobotControlUI(ctk.CTk):
             'params': surgeon_params,
             'state': 'AWAITING',
             'pid': None,
-            'target': robot_control.main
+            'target': robot_control.main,
+            'restartable': True
         }
         self.heartbeat.put(("surgeon_control", "AWAITING"))
         self.processes['diagnost_control'] = {
@@ -863,7 +870,8 @@ class RobotControlUI(ctk.CTk):
             'params': diagnost_params,
             'state': 'AWAITING',
             'pid': None,
-            'target': robot_control.main
+            'target': robot_control.main,
+            'restartable': True
         }
         self.heartbeat.put(("diagnost_control", "AWAITING"))
 
@@ -1030,35 +1038,48 @@ class RobotControlUI(ctk.CTk):
         pass
 
     def system_monitor(self):
-        diagnost = urx.Robot(self.diagnost_ip, use_rt=True)
-        hirurg = urx.Robot(self.surgeon_ip, use_rt=True)
-        while not self.monitor_stop_event.is_set():
-            diagnost_status = diagnost.is_running()
-            hirurg_status = hirurg.is_running()
+        diagnost = None
+        hirurg = None
+        try:
+            diagnost = urx.Robot(self.diagnost_ip, use_rt=True)
+            hirurg = urx.Robot(self.surgeon_ip, use_rt=True)
+            while not self.monitor_stop_event.is_set():
+                try:
+                    diagnost_status = diagnost.is_running()
+                    hirurg_status = hirurg.is_running()
 
-            diagnost_force = diagnost.get_tcp_force()
-            hirurg_force = hirurg.get_tcp_force()
+                    diagnost_force = diagnost.get_tcp_force()
+                    hirurg_force = hirurg.get_tcp_force()
 
-            diagnost_pose = diagnost.getl()
-            hirurg_pose = hirurg.getl()
+                    diagnost_pose = diagnost.getl()
+                    hirurg_pose = hirurg.getl()
 
-            diagnost_joints = diagnost.getj()
-            hirurg_joints = hirurg.getj()
+                    diagnost_joints = diagnost.getj()
+                    hirurg_joints = hirurg.getj()
 
-            self.telemetry_vars['diag_status'].set("Вкл" if diagnost_status else "Откл")
-            self.telemetry_vars['hir_status'].set("Вкл" if hirurg_status else "Откл")
-            self.telemetry_vars['diag_force'].set(f"{diagnost_force[2]:.2f}")
-            self.telemetry_vars['hir_force'].set(f"{hirurg_force[2]:.2f}")
+                    self.telemetry_vars['diag_status'].set("Вкл" if diagnost_status else "Откл")
+                    self.telemetry_vars['hir_status'].set("Вкл" if hirurg_status else "Откл")
+                    self.telemetry_vars['diag_force'].set(f"{diagnost_force[2]:.2f}")
+                    self.telemetry_vars['hir_force'].set(f"{hirurg_force[2]:.2f}")
 
-            self.telemetry_logger.log_data(
-                ["диагност"] + list(diagnost_pose[:3]) + list(diagnost_joints) + list(diagnost_force))
-            self.telemetry_logger.log_data(
-                ["хирург"] + list(hirurg_pose[:3]) + list(hirurg_joints) + list(hirurg_force))
-            time.sleep(1)
-
-            # self.diagnost_force_data_entry.set(diagnost_force)
-        diagnost.close()
-        hirurg.close()
+                    self.telemetry_logger.log_data(
+                        ["диагност"] + list(diagnost_pose[:3]) + list(diagnost_joints) + list(diagnost_force))
+                    self.telemetry_logger.log_data(
+                        ["хирург"] + list(hirurg_pose[:3]) + list(hirurg_joints) + list(hirurg_force))
+                except Exception as exc:
+                    logger.warning(f"Ошибка чтения телеметрии: {type(exc).__name__}: {str(exc)[:200]}")
+                    self.telemetry_vars['diag_status'].set("Откл")
+                    self.telemetry_vars['hir_status'].set("Откл")
+                time.sleep(1)
+        except Exception as exc:
+            logger.error(f"Не удалось запустить мониторинг телеметрии: {type(exc).__name__}: {str(exc)[:200]}")
+            self.telemetry_vars['diag_status'].set("Откл")
+            self.telemetry_vars['hir_status'].set("Откл")
+        finally:
+            if diagnost:
+                diagnost.close()
+            if hirurg:
+                hirurg.close()
 
     def watchdog(self):
         logger.debug("Запущен цикл мониторинга сердцебиения")
@@ -1096,12 +1117,18 @@ class RobotControlUI(ctk.CTk):
                 elif msg_type == "ERROR":
                     error_msg = msg[2]
                     logger.error(f"Процесс {name} (PID: {proc['pid']}) ошибка: {error_msg}")
-                    self._force_restart(name, reason=f"Ошибка: {error_msg}")
+                    if proc.get("restartable", True):
+                        self._force_restart(name, reason=f"Ошибка: {error_msg}")
+                    else:
+                        self._close_process(name)
 
                 elif msg_type == "CRASH":
                     error_msg = msg[2]
                     logger.critical(f"Процесс {name} (PID: {proc['pid']}) аварийно завершился: {error_msg}")
-                    self._force_restart(name, reason=f"Аварийное завершение: {error_msg}")
+                    if proc.get("restartable", True):
+                        self._force_restart(name, reason=f"Аварийное завершение: {error_msg}")
+                    else:
+                        self._close_process(name)
                 elif msg_type == "AWAITING":
                     logger.info(f"Процесс {name} ожидает запуска")
                     self._start_process(name)
@@ -1117,14 +1144,20 @@ class RobotControlUI(ctk.CTk):
                     if not proc['process'].is_alive():
                         logger.warning(
                             f"Процесс {name} (PID: {proc['pid']}) завершился без уведомления. Последнее сердцебиение: {time_since_hb:.1f}s назад")
-                        self._force_restart(name, reason="Неожиданное завершение процесса")
+                        if proc.get("restartable", True):
+                            self._force_restart(name, reason="Неожиданное завершение процесса")
+                        else:
+                            self._close_process(name)
                     else:
                         logger.critical(
                             f"ОБНАРУЖЕНО ЗАВИСАНИЕ: процесс {name} (PID: {proc.get('pid', 'N/A')}) не отвечает "
                             f"в течение {time_since_hb:.1f}s (тайм: {self.heartbeat_timeout}s) "
                             f"Состояние: {proc['state']}"
                         )
-                        self._force_restart(name, reason="Зависание процесса (таймаут сердцебиения)")
+                        if proc.get("restartable", True):
+                            self._force_restart(name, reason="Зависание процесса (таймаут сердцебиения)")
+                        else:
+                            self._close_process(name)
 
             time.sleep(1.0)
 
@@ -1153,7 +1186,8 @@ class RobotControlUI(ctk.CTk):
             'params': params,
             'state': 'STARTING',
             'pid': p.pid,
-            'target': target_func
+            'target': target_func,
+            'restartable': self.processes[name].get('restartable', True)
         }
 
     def _update_status(self, name, state, color):
@@ -1162,7 +1196,7 @@ class RobotControlUI(ctk.CTk):
     def _schedule_restart(self, name, reason="Плановый перезапуск"):
         pass
 
-    def _actual_restart(self, name, target_func, params, reason=""):
+    def _actual_restart(self, name, target_func, params, reason="", restartable=True):
         self.restart_delays[name] = 1.0
 
         logger.info(f"Перезапуск процесса {name} | Причина: {reason}")
@@ -1177,7 +1211,8 @@ class RobotControlUI(ctk.CTk):
             'params': params,
             'state': 'STARTING',
             'pid': p.pid,
-            'target': target_func
+            'target': target_func,
+            'restartable': restartable
         }
         self._update_status(name, "RESTARTING", "orange")
 
@@ -1215,7 +1250,11 @@ class RobotControlUI(ctk.CTk):
 
         logger.info(f"Планирование перезапуска {name} через {delay:.1f}с (экспоненциальная задержка)")
 
-        threading.Timer(delay, self._actual_restart, args=(name, proc['target'], proc['params'], reason)).start()
+        threading.Timer(
+            delay,
+            self._actual_restart,
+            args=(name, proc['target'], proc['params'], reason, proc.get('restartable', True))
+        ).start()
 
     def kill_all(self):
         pass

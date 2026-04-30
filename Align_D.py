@@ -1,4 +1,6 @@
 import urx
+from urx_compat import patch_urx_math3d
+patch_urx_math3d()
 from config import load_config
 
 def main(host=None):

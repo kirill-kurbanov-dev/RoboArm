@@ -1,5 +1,7 @@
 import urx
 import math3d as m3d
+from urx_compat import patch_urx_math3d
+patch_urx_math3d()
 from config import load_config
 
 

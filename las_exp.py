@@ -1,4 +1,6 @@
 import urx
+from urx_compat import patch_urx_math3d
+patch_urx_math3d()
 import time
 import socket
 from math import pi
