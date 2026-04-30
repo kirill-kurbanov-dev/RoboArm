@@ -67,6 +67,18 @@ def send_program(host, port, program):
         time.sleep(0.2)
 
 
+def peek_port(host, port):
+    try:
+        with socket.create_connection((host, port), timeout=3) as sock:
+            sock.settimeout(1)
+            try:
+                return sock.recv(160)
+            except socket.timeout:
+                return b""
+    except Exception as exc:
+        return f"{type(exc).__name__}: {exc}".encode()
+
+
 def main():
     parser = argparse.ArgumentParser(description="Tiny direct URScript movement test without urx or joystick.")
     parser.add_argument("robot", choices=["diagnost", "surgeon"], help="Robot from robot_config.json")
@@ -75,6 +87,7 @@ def main():
     parser.add_argument("--duration", type=float, default=0.5, help="Move duration in seconds")
     parser.add_argument("--acceleration", type=float, default=0.05, help="Acceleration in m/s^2")
     parser.add_argument("--no-return", action="store_true", help="Do not move back after the test move")
+    parser.add_argument("--port", type=int, default=30002, help="URScript port: try 30002, then 30001")
     parser.add_argument("--execute", action="store_true", help="Actually send the movement program")
     args = parser.parse_args()
 
@@ -87,6 +100,10 @@ def main():
     banner, mode = dashboard_status(host)
     print(f"Dashboard banner: {banner or '<empty>'}")
     print(f"Robot mode: {mode}")
+    first_bytes = peek_port(host, args.port)
+    print(f"Port {args.port} first bytes: {first_bytes[:120]!r}")
+    if b"html" in first_bytes.lower() or b"bitly" in first_bytes.lower() or b"http" in first_bytes.lower():
+        print("WARNING: this port looks like HTTP/web content, not a UR robot stream.")
     print("\nProgram:")
     print(program)
 
@@ -94,8 +111,8 @@ def main():
         print("DRY RUN: add --execute to send this program to the robot.")
         return
 
-    send_program(host, 30002, program)
-    print("Program sent to port 30002.")
+    send_program(host, args.port, program)
+    print(f"Program sent to port {args.port}.")
 
 
 if __name__ == "__main__":
