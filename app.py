@@ -52,7 +52,7 @@ starting_pose = []
 auto = mp.Value("i", 1)
 force_lock = mp.Value("i", 0)
 control_lock = mp.Value("i", 0)
-program_lock = mp.Value("i", 0)
+program_lock = mp.Value("i", 1)
 
 # Настройки внешнего вида
 ctk.set_appearance_mode("Dark")  # Темы: "Dark", "Light", "System"
@@ -848,6 +848,7 @@ class RobotControlUI(ctk.CTk):
         self.config = load_config()
         self.surgeon_ip = self.config.surgeon_ip
         self.diagnost_ip = self.config.diagnost_ip
+        program_lock.value = 1
         self.control_initiate_btn.configure(state=ctk.DISABLED)
         self.control_disable_btn.configure(state=ctk.NORMAL)
         surgeon_params = (self.surgeon_ip, True, auto, program_lock, shared_path, self.heartbeat, self.diagnost_ip)
@@ -878,6 +879,7 @@ class RobotControlUI(ctk.CTk):
         self.heartbeat.put(("diagnost_control", "AWAITING"))
 
     def control_disable(self):
+        program_lock.value = 1
         self.heartbeat.put(("diagnost_control","FINISHED"))
         self.heartbeat.put(("surgeon_control", "FINISHED"))
         self.control_disable_btn.configure(state=ctk.DISABLED)

@@ -86,6 +86,7 @@ class JoystickRobotController:
         self.duration = 0.12
         self.last_heartbeat = time.time()
         self.joystick = None
+        self.axis_neutral = []
         self.robot = DirectURRobot(self.host, self.control_port, self.logger)
         self.slave = None
         self.was_moving = False
@@ -103,9 +104,17 @@ class JoystickRobotController:
             joystick_id = 0
         self.joystick = pygame.joystick.Joystick(joystick_id)
         self.joystick.init()
+        pygame.event.pump()
+        time.sleep(0.1)
+        pygame.event.pump()
+        self.axis_neutral = [
+            as_float(self.joystick.get_axis(axis_id), 0.0)
+            for axis_id in range(self.joystick.get_numaxes())
+        ]
         self.logger.info(
             f"Инициализирован джойстик id={joystick_id}, name={self.joystick.get_name()}, "
-            f"axes={self.joystick.get_numaxes()}, buttons={self.joystick.get_numbuttons()}, hats={self.joystick.get_numhats()}"
+            f"axes={self.joystick.get_numaxes()}, buttons={self.joystick.get_numbuttons()}, hats={self.joystick.get_numhats()}, "
+            f"axis_neutral={[round(value, 3) for value in self.axis_neutral]}"
         )
 
     def ensure_slave(self):
@@ -122,7 +131,9 @@ class JoystickRobotController:
     def axis(self, axis_id):
         if self.joystick.get_numaxes() <= axis_id:
             return 0.0
-        value = as_float(self.joystick.get_axis(axis_id), 0.0)
+        neutral = self.axis_neutral[axis_id] if axis_id < len(self.axis_neutral) else 0.0
+        value = as_float(self.joystick.get_axis(axis_id), 0.0) - neutral
+        value = max(-1.0, min(1.0, value))
         return value if abs(value) >= self.deadzone else 0.0
 
     def hat(self):
