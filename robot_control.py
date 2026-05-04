@@ -83,7 +83,8 @@ class JoystickRobotController:
         )
         self.rotational_velocity = as_float(self.config.rotational_velocity, 0.19)
         self.acceleration = as_float(self.config.acceleration, 0.1)
-        self.duration = 0.12
+        self.duration = 0.06
+        self.loop_period = 0.04
         self.last_heartbeat = time.time()
         self.joystick = None
         self.axis_neutral = []
@@ -159,7 +160,7 @@ class JoystickRobotController:
         speeds[4] = -self.axis(0) * self.rotational_velocity
         speeds[5] = self.axis(3) * self.rotational_velocity
 
-        return [float(value) for value in speeds]
+        return [float(-value) for value in speeds]
 
     @staticmethod
     def has_motion(speeds):
@@ -203,6 +204,7 @@ class JoystickRobotController:
                     if slave:
                         slave.speedl(speeds, self.acceleration, self.duration)
                 self.was_moving = True
+                time.sleep(self.loop_period)
             else:
                 if self.was_moving:
                     self.robot.stop()
