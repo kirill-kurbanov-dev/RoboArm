@@ -22,7 +22,16 @@ def as_float(value, default=0.0):
 
 
 def pose_to_list(pose):
-    return [float(value) for value in pose[:6]]
+    if hasattr(pose, "tolist"):
+        values = pose.tolist()
+    elif isinstance(pose, (list, tuple)):
+        values = pose
+    else:
+        values = [pose[index] for index in range(6)]
+    values = list(values)
+    if len(values) < 6:
+        raise ValueError(f"Поза должна содержать 6 чисел, получено {len(values)}")
+    return [float(value) for value in values[:6]]
 
 
 def console(message):
@@ -58,6 +67,10 @@ class DirectURRobot:
     def speedl(self, speeds, acceleration, duration):
         values = ", ".join(f"{float(value):.6f}" for value in speeds)
         self.send(f"speedl([{values}], {float(acceleration):.6f}, {float(duration):.6f})\n")
+
+    def movel(self, pose, acceleration, velocity):
+        values = ", ".join(f"{value:.6f}" for value in pose_to_list(pose))
+        self.send(f"movel(p[{values}], a={float(acceleration):.6f}, v={float(velocity):.6f})\n")
 
     def stop(self):
         try:
@@ -195,7 +208,9 @@ class JoystickRobotController:
         route_robot = self.ensure_pose_robot()
         self.logger.info(f"Запуск маршрута из {len(self.path)} точек")
         for index, pose in enumerate(list(self.path), start=1):
-            route_robot.movel(pose, acc=0.2, vel=0.05, wait=False)
+            pose = pose_to_list(pose)
+            console(f"{mp.current_process().name}: movel точка {index}: {[round(value, 5) for value in pose]}")
+            self.robot.movel(pose, acceleration=0.2, velocity=0.05)
             started_at = time.time()
             while route_robot.is_program_running():
                 self.update_heartbeat()

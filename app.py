@@ -59,6 +59,25 @@ ctk.set_appearance_mode("Dark")  # Темы: "Dark", "Light", "System"
 ctk.set_default_color_theme("blue")  # Темы: "blue", "green", "dark-blue"
 
 
+def pose_to_list(pose):
+    if hasattr(pose, "tolist"):
+        values = pose.tolist()
+    elif isinstance(pose, (list, tuple)):
+        values = pose
+    else:
+        values = [pose[index] for index in range(6)]
+    values = list(values)
+    if len(values) < 6:
+        raise ValueError(f"Поза должна содержать 6 чисел, получено {len(values)}")
+    return [float(value) for value in values[:6]]
+
+
+def send_movel(host, port, pose, acceleration=0.2, velocity=0.05):
+    values = ", ".join(f"{value:.6f}" for value in pose_to_list(pose))
+    with socket.create_connection((host, int(port)), timeout=3) as sock:
+        sock.sendall(f"movel(p[{values}], a={float(acceleration):.6f}, v={float(velocity):.6f})\n".encode("utf-8"))
+
+
 def setup_status_logging(log_dir="logs", max_bytes=10 * 1024 * 1024, backup_count=5):
     log_dir = Path(log_dir)
     log_dir.mkdir(exist_ok=True)
@@ -1024,7 +1043,7 @@ class RobotControlUI(ctk.CTk):
 
     def load_route_points(self, file_path, robot):
         route = []
-        current_pose = robot.getl()
+        current_pose = pose_to_list(robot.getl())
         with open(file_path, "r", encoding="utf-8") as file:
             for line_no, line in enumerate(file, start=1):
                 line = line.strip()
@@ -1032,7 +1051,7 @@ class RobotControlUI(ctk.CTk):
                     continue
                 values = [float(value) for value in line.replace(",", "|").split("|") if value.strip()]
                 if len(values) == 3:
-                    values = values + list(current_pose[3:6])
+                    values = values + current_pose[3:6]
                 if len(values) != 6:
                     raise ValueError(f"строка {line_no}: нужно 3 или 6 чисел, получено {len(values)}")
                 route.append(values)
@@ -1055,7 +1074,7 @@ class RobotControlUI(ctk.CTk):
                     robot.stop()
                     stop_route.clear()
                     return
-                robot.movel(pose, acc=0.2, vel=0.05, wait=False)
+                send_movel(host, self.config.control_port, pose, acceleration=0.2, velocity=0.05)
                 while robot.is_program_running():
                     if stop_route.is_set():
                         robot.stop()
