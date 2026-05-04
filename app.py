@@ -851,7 +851,7 @@ class RobotControlUI(ctk.CTk):
         program_lock.value = 1
         self.control_initiate_btn.configure(state=ctk.DISABLED)
         self.control_disable_btn.configure(state=ctk.NORMAL)
-        surgeon_params = (self.surgeon_ip, True, auto, program_lock, shared_path, self.heartbeat, self.diagnost_ip)
+        surgeon_params = (self.surgeon_ip, True, auto, program_lock, hirurg_path, self.heartbeat, self.diagnost_ip)
         diagnost_params = (self.diagnost_ip, False, auto, program_lock, shared_path, self.heartbeat)
 
         self.processes['surgeon_control'] = {
@@ -998,33 +998,85 @@ class RobotControlUI(ctk.CTk):
                     except IndexError:
                         self.show_error("Данные отсутствуют")
 
-    def save_d_route(self):
-        print(shared_path)
-        if (len(shared_path[0])):
-            file_path = filedialog.asksaveasfilename(defaultextension=".txt")
-            if file_path:
-                with open(file_path, "w") as file:
-                    for pos in shared_path[0]:
-                        file.write(str(pos[0]) + "|" + str(pos[1]) + "|" + str(pos[2]) + "\n")
-                shared_path[0] = []
-        else:
+    def save_route_points(self, route_points, title):
+        if not len(route_points[0]):
             self.show_error("Путь отсутствует")
+            return
+
+        file_path = filedialog.asksaveasfilename(
+            title=title,
+            defaultextension=".txt",
+            filetypes=[("Text files", "*.txt")],
+        )
+        if not file_path:
+            return
+
+        with open(file_path, "w", encoding="utf-8") as file:
+            for pose in route_points[0]:
+                file.write("|".join(f"{float(value):.10f}" for value in pose[:6]) + "\n")
+        route_points[0] = []
+
+    def save_d_route(self):
+        self.save_route_points(shared_path, "Сохранить маршрут диагноста")
 
     def save_h_route(self):
-        if (len(hirurg_path[0])):
-            file_path = filedialog.asksaveasfilename(defaultextension=".txt")
-            if file_path:
-                with open(file_path, "w") as file:
-                    for pos in hirurg_path[0]:
-                        file.write(str(pos[0]) + "|" + str(pos[1]) + "|" + str(pos[2]) + "\n")
-                hirurg_path[0] = []
-        else:
-            self.show_error("Путь отсутствует")
+        self.save_route_points(hirurg_path, "Сохранить маршрут хирурга")
+
+    def load_route_points(self, file_path, robot):
+        route = []
+        current_pose = robot.getl()
+        with open(file_path, "r", encoding="utf-8") as file:
+            for line_no, line in enumerate(file, start=1):
+                line = line.strip()
+                if not line:
+                    continue
+                values = [float(value) for value in line.replace(",", "|").split("|") if value.strip()]
+                if len(values) == 3:
+                    values = values + list(current_pose[3:6])
+                if len(values) != 6:
+                    raise ValueError(f"строка {line_no}: нужно 3 или 6 чисел, получено {len(values)}")
+                route.append(values)
+        return route
+
+    def run_route_file(self, host, file_path):
+        global stop_route
+        previous_lock = program_lock.value
+        program_lock.value = 1
+        robot = None
+        try:
+            robot = urx.Robot(host, use_rt=True)
+            route = self.load_route_points(file_path, robot)
+            if not route:
+                self.after(0, self.show_error, "Файл маршрута пуст")
+                return
+            stop_route.clear()
+            for pose in route:
+                if stop_route.is_set():
+                    robot.stop()
+                    stop_route.clear()
+                    return
+                robot.movel(pose, acc=0.2, vel=0.05, wait=False)
+                while robot.is_program_running():
+                    if stop_route.is_set():
+                        robot.stop()
+                        stop_route.clear()
+                        return
+                    time.sleep(0.02)
+        except Exception as exc:
+            logger.error(f"Ошибка запуска маршрута из файла: {type(exc).__name__}: {str(exc)[:200]}")
+            self.after(0, self.show_error, f"Не удалось запустить маршрут: {type(exc).__name__}: {str(exc)[:120]}")
+        finally:
+            if robot:
+                robot.close()
+            program_lock.value = previous_lock
 
     def launch_h_route(self):
-        file_path = filedialog.askopenfile(title="Выберите файл маршрута хирурга", filetypes=[("Text files", "*.txt")])
-
-        pass
+        file_path = filedialog.askopenfilename(
+            title="Выберите файл маршрута хирурга",
+            filetypes=[("Text files", "*.txt")],
+        )
+        if file_path:
+            Thread(target=self.run_route_file, args=(self.surgeon_ip, file_path), daemon=True).start()
 
     def stop_routef(self):
         global stop_route
@@ -1039,7 +1091,12 @@ class RobotControlUI(ctk.CTk):
             self.show_error("Начальная точка маршрута отсутствует")
 
     def launch_d_route(self):
-        pass
+        file_path = filedialog.askopenfilename(
+            title="Выберите файл маршрута диагноста",
+            filetypes=[("Text files", "*.txt")],
+        )
+        if file_path:
+            Thread(target=self.run_route_file, args=(self.diagnost_ip, file_path), daemon=True).start()
 
     def system_monitor(self):
         diagnost = None

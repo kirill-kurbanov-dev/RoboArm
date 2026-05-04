@@ -8,6 +8,9 @@ from datetime import datetime
 
 import pygame
 
+import urx
+from urx_compat import patch_urx_math3d
+patch_urx_math3d()
 from config import load_config
 
 
@@ -16,6 +19,10 @@ def as_float(value, default=0.0):
         return float(value)
     except (TypeError, ValueError):
         return default
+
+
+def pose_to_list(pose):
+    return [float(value) for value in pose[:6]]
 
 
 class DirectURRobot:
@@ -89,8 +96,11 @@ class JoystickRobotController:
         self.joystick = None
         self.axis_neutral = []
         self.robot = DirectURRobot(self.host, self.control_port, self.logger)
+        self.pose_robot = None
         self.slave = None
         self.was_moving = False
+        self.path = []
+        self.last_buttons = {}
 
     def init_joystick(self):
         pygame.init()
@@ -128,6 +138,62 @@ class JoystickRobotController:
 
     def button_pressed(self, button_id):
         return self.joystick.get_numbuttons() > button_id and bool(self.joystick.get_button(button_id))
+
+    def button_rising(self, button_id):
+        pressed = self.button_pressed(button_id)
+        was_pressed = self.last_buttons.get(button_id, False)
+        self.last_buttons[button_id] = pressed
+        return pressed and not was_pressed
+
+    def ensure_pose_robot(self):
+        if self.pose_robot is None:
+            self.logger.info(f"Подключение URX для маршрутов {self.host}")
+            self.pose_robot = urx.Robot(self.host, use_rt=True)
+        return self.pose_robot
+
+    def publish_path(self):
+        self.shared_path[0] = [pose_to_list(pose) for pose in self.path]
+
+    def record_route_point(self):
+        pose = pose_to_list(self.ensure_pose_robot().getl())
+        self.path.append(pose)
+        self.publish_path()
+        self.logger.info(f"Записана точка маршрута {len(self.path)}: {[round(value, 5) for value in pose]}")
+
+    def replay_route(self):
+        if not self.path:
+            self.logger.warning("Маршрут пуст, воспроизведение не запущено")
+            return
+
+        self.robot.stop()
+        if self.slave:
+            self.slave.stop()
+        self.was_moving = False
+
+        route_robot = self.ensure_pose_robot()
+        self.logger.info(f"Запуск маршрута из {len(self.path)} точек")
+        for index, pose in enumerate(list(self.path), start=1):
+            route_robot.movel(pose, acc=0.2, vel=0.05, wait=False)
+            started_at = time.time()
+            while route_robot.is_program_running():
+                self.update_heartbeat()
+                pygame.event.pump()
+                if time.time() - started_at > 0.5 and self.button_pressed(11):
+                    route_robot.stop()
+                    self.logger.info("Маршрут остановлен кнопкой 11")
+                    return
+                time.sleep(0.02)
+            self.logger.info(f"Маршрут: достигнута точка {index}/{len(self.path)}")
+
+    def handle_route_buttons(self):
+        if self.button_rising(10):
+            self.record_route_point()
+        if self.button_rising(11):
+            self.replay_route()
+        if self.button_rising(9):
+            self.path = []
+            self.publish_path()
+            self.logger.info("Маршрут очищен")
 
     def axis(self, axis_id):
         if self.joystick.get_numaxes() <= axis_id:
@@ -196,6 +262,7 @@ class JoystickRobotController:
                 continue
 
             speeds = self.read_speeds()
+            self.handle_route_buttons()
 
             if self.has_motion(speeds):
                 self.robot.speedl(speeds, self.acceleration, self.duration)
@@ -230,6 +297,8 @@ class JoystickRobotController:
         if self.joystick:
             self.joystick.quit()
         self.robot.close()
+        if self.pose_robot:
+            self.pose_robot.close()
         if self.slave:
             self.slave.close()
         pygame.quit()
