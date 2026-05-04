@@ -5,6 +5,7 @@ import os
 import socket
 import time
 from datetime import datetime
+from math import sqrt
 
 import pygame
 
@@ -36,6 +37,12 @@ def pose_to_list(pose):
 
 def console(message):
     print(f"[robot_control] {message}", flush=True)
+
+
+def linear_distance(pose_a, pose_b):
+    a = pose_to_list(pose_a)
+    b = pose_to_list(pose_b)
+    return sqrt(sum((a[index] - b[index]) ** 2 for index in range(3)))
 
 
 class DirectURRobot:
@@ -70,7 +77,11 @@ class DirectURRobot:
 
     def movel(self, pose, acceleration, velocity):
         values = ", ".join(f"{value:.6f}" for value in pose_to_list(pose))
-        self.send(f"movel(p[{values}], a={float(acceleration):.6f}, v={float(velocity):.6f})\n")
+        self.send(
+            "def route_move():\n"
+            f"  movel(p[{values}], a={float(acceleration):.6f}, v={float(velocity):.6f})\n"
+            "end\n"
+        )
 
     def stop(self):
         try:
@@ -212,9 +223,28 @@ class JoystickRobotController:
             console(f"{mp.current_process().name}: movel точка {index}: {[round(value, 5) for value in pose]}")
             self.robot.movel(pose, acceleration=0.2, velocity=0.05)
             started_at = time.time()
-            while route_robot.is_program_running():
+            saw_motion = False
+            while True:
                 self.update_heartbeat()
                 pygame.event.pump()
+                distance = linear_distance(route_robot.getl(), pose)
+                running = route_robot.is_program_running()
+                saw_motion = saw_motion or running or distance > 0.003
+                if saw_motion and distance <= 0.003 and not running:
+                    break
+                if not saw_motion and time.time() - started_at > 1.0:
+                    console(
+                        f"{mp.current_process().name}: точка {index}, движение не началось "
+                        f"(расстояние {distance:.4f} м)"
+                    )
+                    break
+                if time.time() - started_at > 30.0:
+                    route_robot.stop()
+                    console(
+                        f"{mp.current_process().name}: таймаут движения к точке {index}, "
+                        f"остаток {distance:.4f} м"
+                    )
+                    return
                 if time.time() - started_at > 0.5 and self.button_pressed(11):
                     route_robot.stop()
                     self.logger.info("Маршрут остановлен кнопкой 11")
@@ -223,6 +253,7 @@ class JoystickRobotController:
                 time.sleep(0.02)
             self.logger.info(f"Маршрут: достигнута точка {index}/{len(self.path)}")
             console(f"{mp.current_process().name}: достигнута точка {index}/{len(self.path)}")
+        console(f"{mp.current_process().name}: маршрут завершён")
 
     def handle_route_buttons(self):
         try:

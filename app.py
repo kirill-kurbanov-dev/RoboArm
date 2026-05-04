@@ -75,7 +75,13 @@ def pose_to_list(pose):
 def send_movel(host, port, pose, acceleration=0.2, velocity=0.05):
     values = ", ".join(f"{value:.6f}" for value in pose_to_list(pose))
     with socket.create_connection((host, int(port)), timeout=3) as sock:
-        sock.sendall(f"movel(p[{values}], a={float(acceleration):.6f}, v={float(velocity):.6f})\n".encode("utf-8"))
+        sock.sendall(
+            (
+                "def route_move():\n"
+                f"  movel(p[{values}], a={float(acceleration):.6f}, v={float(velocity):.6f})\n"
+                "end\n"
+            ).encode("utf-8")
+        )
 
 
 def setup_status_logging(log_dir="logs", max_bytes=10 * 1024 * 1024, backup_count=5):
