@@ -25,6 +25,10 @@ def pose_to_list(pose):
     return [float(value) for value in pose[:6]]
 
 
+def console(message):
+    print(f"[robot_control] {message}", flush=True)
+
+
 class DirectURRobot:
     def __init__(self, host, port, logger):
         self.host = host
@@ -101,6 +105,7 @@ class JoystickRobotController:
         self.was_moving = False
         self.path = []
         self.last_buttons = {}
+        self.debug_buttons = {}
 
     def init_joystick(self):
         pygame.init()
@@ -127,6 +132,10 @@ class JoystickRobotController:
             f"axes={self.joystick.get_numaxes()}, buttons={self.joystick.get_numbuttons()}, hats={self.joystick.get_numhats()}, "
             f"axis_neutral={[round(value, 3) for value in self.axis_neutral]}"
         )
+        console(
+            f"{mp.current_process().name}: joystick id={joystick_id}, name={self.joystick.get_name()}, "
+            f"buttons={self.joystick.get_numbuttons()}, axes={self.joystick.get_numaxes()}, hats={self.joystick.get_numhats()}"
+        )
 
     def ensure_slave(self):
         if not self.is_master or not self.slave_host:
@@ -145,6 +154,15 @@ class JoystickRobotController:
         self.last_buttons[button_id] = pressed
         return pressed and not was_pressed
 
+    def print_button_changes(self):
+        for button_id in range(self.joystick.get_numbuttons()):
+            pressed = self.button_pressed(button_id)
+            was_pressed = self.debug_buttons.get(button_id, False)
+            if pressed != was_pressed:
+                state = "НАЖАТА" if pressed else "отпущена"
+                console(f"{mp.current_process().name}: кнопка {button_id} {state}")
+                self.debug_buttons[button_id] = pressed
+
     def ensure_pose_robot(self):
         if self.pose_robot is None:
             self.logger.info(f"Подключение URX для маршрутов {self.host}")
@@ -155,16 +173,20 @@ class JoystickRobotController:
         self.shared_path[0] = [pose_to_list(pose) for pose in self.path]
 
     def record_route_point(self):
+        console(f"{mp.current_process().name}: кнопка 10, записываю точку маршрута")
         pose = pose_to_list(self.ensure_pose_robot().getl())
         self.path.append(pose)
         self.publish_path()
         self.logger.info(f"Записана точка маршрута {len(self.path)}: {[round(value, 5) for value in pose]}")
+        console(f"{mp.current_process().name}: точка {len(self.path)} записана: {[round(value, 5) for value in pose]}")
 
     def replay_route(self):
         if not self.path:
             self.logger.warning("Маршрут пуст, воспроизведение не запущено")
+            console(f"{mp.current_process().name}: кнопка 11, но маршрут пуст")
             return
 
+        console(f"{mp.current_process().name}: кнопка 11, запускаю маршрут из {len(self.path)} точек")
         self.robot.stop()
         if self.slave:
             self.slave.stop()
@@ -181,19 +203,26 @@ class JoystickRobotController:
                 if time.time() - started_at > 0.5 and self.button_pressed(11):
                     route_robot.stop()
                     self.logger.info("Маршрут остановлен кнопкой 11")
+                    console(f"{mp.current_process().name}: маршрут остановлен кнопкой 11")
                     return
                 time.sleep(0.02)
             self.logger.info(f"Маршрут: достигнута точка {index}/{len(self.path)}")
+            console(f"{mp.current_process().name}: достигнута точка {index}/{len(self.path)}")
 
     def handle_route_buttons(self):
-        if self.button_rising(10):
-            self.record_route_point()
-        if self.button_rising(11):
-            self.replay_route()
-        if self.button_rising(9):
-            self.path = []
-            self.publish_path()
-            self.logger.info("Маршрут очищен")
+        try:
+            if self.button_rising(10):
+                self.record_route_point()
+            if self.button_rising(11):
+                self.replay_route()
+            if self.button_rising(9):
+                self.path = []
+                self.publish_path()
+                self.logger.info("Маршрут очищен")
+                console(f"{mp.current_process().name}: кнопка 9, маршрут очищен")
+        except Exception as exc:
+            self.logger.exception(f"Ошибка обработки кнопок маршрута: {type(exc).__name__}: {str(exc)[:200]}")
+            console(f"{mp.current_process().name}: ошибка маршрута {type(exc).__name__}: {str(exc)[:200]}")
 
     def axis(self, axis_id):
         if self.joystick.get_numaxes() <= axis_id:
@@ -253,6 +282,8 @@ class JoystickRobotController:
             self.update_heartbeat()
 
             if self.lock.value:
+                pygame.event.pump()
+                self.print_button_changes()
                 if self.was_moving:
                     self.robot.stop()
                     if self.slave:
@@ -262,6 +293,7 @@ class JoystickRobotController:
                 continue
 
             speeds = self.read_speeds()
+            self.print_button_changes()
             self.handle_route_buttons()
 
             if self.has_motion(speeds):
@@ -323,6 +355,11 @@ def setup_process_logger():
     )
     file_handler.setFormatter(formatter)
     logger.addHandler(file_handler)
+
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)
+    console_handler.setFormatter(formatter)
+    logger.addHandler(console_handler)
     return logger
 
 
