@@ -45,6 +45,10 @@ def linear_distance(pose_a, pose_b):
     return sqrt(sum((a[index] - b[index]) ** 2 for index in range(3)))
 
 
+def format_pose(pose, precision=5):
+    return [round(value, precision) for value in pose_to_list(pose)]
+
+
 class DirectURRobot:
     def __init__(self, host, port, logger):
         self.host = host
@@ -218,6 +222,9 @@ class JoystickRobotController:
 
         route_robot = self.ensure_pose_robot()
         self.logger.info(f"Запуск маршрута из {len(self.path)} точек")
+        start_pose = pose_to_list(route_robot.getl())
+        self.logger.info(f"Маршрут: координаты TCP в начале: {format_pose(start_pose)}")
+        console(f"{mp.current_process().name}: координаты TCP в начале маршрута: {format_pose(start_pose)}")
         for index, pose in enumerate(list(self.path), start=1):
             pose = pose_to_list(pose)
             console(f"{mp.current_process().name}: movel точка {index}: {[round(value, 5) for value in pose]}")
@@ -244,15 +251,24 @@ class JoystickRobotController:
                         f"{mp.current_process().name}: таймаут движения к точке {index}, "
                         f"остаток {distance:.4f} м"
                     )
+                    end_pose = pose_to_list(route_robot.getl())
+                    self.logger.info(f"Маршрут: координаты TCP при таймауте: {format_pose(end_pose)}")
+                    console(f"{mp.current_process().name}: координаты TCP при таймауте маршрута: {format_pose(end_pose)}")
                     return
                 if time.time() - started_at > 0.5 and self.button_pressed(11):
                     route_robot.stop()
                     self.logger.info("Маршрут остановлен кнопкой 11")
                     console(f"{mp.current_process().name}: маршрут остановлен кнопкой 11")
+                    end_pose = pose_to_list(route_robot.getl())
+                    self.logger.info(f"Маршрут: координаты TCP при остановке: {format_pose(end_pose)}")
+                    console(f"{mp.current_process().name}: координаты TCP при остановке маршрута: {format_pose(end_pose)}")
                     return
                 time.sleep(0.02)
             self.logger.info(f"Маршрут: достигнута точка {index}/{len(self.path)}")
             console(f"{mp.current_process().name}: достигнута точка {index}/{len(self.path)}")
+        end_pose = pose_to_list(route_robot.getl())
+        self.logger.info(f"Маршрут: координаты TCP в конце: {format_pose(end_pose)}")
+        console(f"{mp.current_process().name}: координаты TCP в конце маршрута: {format_pose(end_pose)}")
         console(f"{mp.current_process().name}: маршрут завершён")
 
     def handle_route_buttons(self):
