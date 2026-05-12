@@ -208,23 +208,54 @@ class JoystickRobotController:
         self.logger.info(f"Записана точка маршрута {len(self.path)}: {[round(value, 5) for value in pose]}")
         console(f"{mp.current_process().name}: точка {len(self.path)} записана: {[round(value, 5) for value in pose]}")
 
-    def replay_route(self):
+    def move_to_route_start(self):
         if not self.path:
-            self.logger.warning("Маршрут пуст, воспроизведение не запущено")
+            self.logger.warning("Маршрут пуст, переход в начальную точку не выполнен")
             console(f"{mp.current_process().name}: кнопка 11, но маршрут пуст")
             return
 
-        console(f"{mp.current_process().name}: кнопка 11, запускаю маршрут из {len(self.path)} точек")
+        start_pose = pose_to_list(self.path[0])
+        console(f"{mp.current_process().name}: кнопка 11, переход в точку 1: {format_pose(start_pose)}")
+        self.robot.stop()
+        if self.slave:
+            self.slave.stop()
+        self.was_moving = False
+        self.robot.movel(start_pose, acceleration=0.2, velocity=0.05)
+        self.logger.info(f"Переход в начальную точку маршрута: {format_pose(start_pose)}")
+
+    def replay_route(self):
+        if not self.path:
+            self.logger.warning("Маршрут пуст, воспроизведение не запущено")
+            console(f"{mp.current_process().name}: кнопка 7, но маршрут пуст")
+            return
+
+        route_robot = self.ensure_pose_robot()
+        start_pose = pose_to_list(self.path[0])
+        current_pose = pose_to_list(route_robot.getl())
+        start_distance = linear_distance(current_pose, start_pose)
+        if start_distance > 0.005:
+            self.logger.warning(
+                f"Маршрут не запущен: робот не в точке 1, расстояние {start_distance:.4f} м"
+            )
+            console(
+                f"{mp.current_process().name}: кнопка 7, сначала нажмите 11 "
+                f"(до точки 1 {start_distance:.4f} м)"
+            )
+            return
+
+        console(f"{mp.current_process().name}: кнопка 7, запускаю маршрут из {len(self.path)} точек")
         self.robot.stop()
         if self.slave:
             self.slave.stop()
         self.was_moving = False
 
-        route_robot = self.ensure_pose_robot()
         self.logger.info(f"Запуск маршрута из {len(self.path)} точек")
-        start_pose = pose_to_list(route_robot.getl())
-        self.logger.info(f"Маршрут: координаты TCP в начале: {format_pose(start_pose)}")
-        console(f"{mp.current_process().name}: координаты TCP в начале маршрута: {format_pose(start_pose)}")
+        self.logger.info(f"Маршрут: координаты TCP в начале: {format_pose(current_pose)}")
+        console(f"{mp.current_process().name}: координаты TCP в начале маршрута: {format_pose(current_pose)}")
+        while self.button_pressed(7):
+            self.update_heartbeat()
+            pygame.event.pump()
+            time.sleep(0.02)
         for index, pose in enumerate(list(self.path), start=1):
             pose = pose_to_list(pose)
             console(f"{mp.current_process().name}: movel точка {index}: {[round(value, 5) for value in pose]}")
@@ -255,10 +286,10 @@ class JoystickRobotController:
                     self.logger.info(f"Маршрут: координаты TCP при таймауте: {format_pose(end_pose)}")
                     console(f"{mp.current_process().name}: координаты TCP при таймауте маршрута: {format_pose(end_pose)}")
                     return
-                if time.time() - started_at > 0.5 and self.button_pressed(11):
+                if time.time() - started_at > 0.5 and self.button_pressed(7):
                     route_robot.stop()
-                    self.logger.info("Маршрут остановлен кнопкой 11")
-                    console(f"{mp.current_process().name}: маршрут остановлен кнопкой 11")
+                    self.logger.info("Маршрут остановлен кнопкой 7")
+                    console(f"{mp.current_process().name}: маршрут остановлен кнопкой 7")
                     end_pose = pose_to_list(route_robot.getl())
                     self.logger.info(f"Маршрут: координаты TCP при остановке: {format_pose(end_pose)}")
                     console(f"{mp.current_process().name}: координаты TCP при остановке маршрута: {format_pose(end_pose)}")
@@ -276,6 +307,8 @@ class JoystickRobotController:
             if self.button_rising(10):
                 self.record_route_point()
             if self.button_rising(11):
+                self.move_to_route_start()
+            if self.button_rising(7):
                 self.replay_route()
             if self.button_rising(9):
                 self.path = []
@@ -377,10 +410,6 @@ class JoystickRobotController:
             if self.button_pressed(6) and not self.button_pressed(7) and self.auto.value == 1 and self.is_master:
                 self.auto.value = 0
                 self.logger.info("Система переведена в синхронный режим")
-                time.sleep(0.3)
-            elif self.button_pressed(7) and not self.button_pressed(6) and self.auto.value == 0 and self.is_master:
-                self.auto.value = 1
-                self.logger.info("Система переведена в асинхронный режим")
                 time.sleep(0.3)
 
     def close(self):
